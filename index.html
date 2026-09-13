@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CartSense Prototype</title>
+<style>
+  body { font-family: sans-serif; margin: 0; background: #111; color: #eee; }
+  #wrap { display: flex; flex-wrap: wrap; }
+  #camWrap { position: relative; width: 640px; max-width: 100vw; }
+  video, canvas { position: absolute; top: 0; left: 0; width: 100%; }
+  #cartPanel { flex: 1; min-width: 280px; padding: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 6px; border-bottom: 1px solid #444; text-align: left; }
+  #total { font-size: 1.4em; font-weight: bold; margin-top: 10px; }
+  button { padding: 10px 16px; font-size: 1em; margin-top: 10px; cursor: pointer; }
+  #status { padding: 6px; font-size: 0.9em; color: #9f9; }
+</style>
+</head>
+<body>
+
+<div id="status">Loading model...</div>
+<div id="wrap">
+  <div id="camWrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div id="cartPanel">
+    <h2>CART</h2>
+    <table id="cartTable">
+      <thead><tr><th>Item</th><th>Qty</th><th>Price</th></tr></thead>
+      <tbody id="cartBody"></tbody>
+    </table>
+    <div id="total">TOTAL ₹0</div>
+    <button id="clearBtn">Clear Cart</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script>
+// ---------- Product mapping (fake supermarket) ----------
+const PRODUCT_MAP = {
+  bottle: { name: "Coca-Cola", price: 40 },
+  apple:  { name: "Apple",     price: 20 },
+  book:   { name: "Notebook",  price: 50 },
+  cup:    { name: "Coffee",    price: 80 },
+  banana: { name: "Banana",    price: 30 },
+};
+
+// ---------- Tracker config ----------
+const IOU_MATCH_THRESHOLD = 0.3;
+const FRAMES_TO_CONFIRM = 3;   // must be seen this many consecutive frames to enter cart
+const FRAMES_TO_DROP = 8;      // missed this many frames -> remove from cart
+
+let trackedObjects = []; // {id, class, box:[x,y,w,h], seenStreak, missedStreak, confirmed}
+let nextId = 1;
+
+function iou(a, b) {
+  const [ax, ay, aw, ah] = a, [bx, by, bw, bh] = b;
+  const x1 = Math.max(ax, bx), y1 = Math.max(ay, by);
+  const x2 = Math.min(ax+aw, bx+bw), y2 = Math.min(ay+ah, by+bh);
+  const interW = Math.max(0, x2-x1), interH = Math.max(0, y2-y1);
+  const inter = interW * interH;
+  const union = aw*ah + bw*bh - inter;
+  return union <= 0 ? 0 : inter / union;
+}
+
+function updateTracker(detections) {
+  // only keep detections for products we care about
+  const dets = detections.filter(d => PRODUCT_MAP[d.class]);
+
+  const usedDetIdx = new Set();
+
+  // try to match existing tracked objects to a detection of same class
+  trackedObjects.forEach(obj => {
+    let bestIdx = -1, bestIou = 0;
+    dets.forEach((d, i) => {
+      if (usedDetIdx.has(i) || d.class !== obj.class) return;
+      const val = iou(obj.box, d.bbox);
+      if (val > bestIou) { bestIou = val; bestIdx = i; }
+    });
+    if (bestIdx !== -1 && bestIou >= IOU_MATCH_THRESHOLD) {
+      obj.box = dets[bestIdx].bbox;
+      obj.seenStreak++;
+      obj.missedStreak = 0;
+      usedDetIdx.add(bestIdx);
+    } else {
+      obj.seenStreak = 0;
+      obj.missedStreak++;
+    }
+  });
+
+  // remaining detections become new tracked candidates
+  dets.forEach((d, i) => {
+    if (!usedDetIdx.has(i)) {
+      trackedObjects.push({
+        id: nextId++, class: d.class, box: d.bbox,
+        seenStreak: 1, missedStreak: 0, confirmed: false
+      });
+    }
+  });
+
+  // confirm objects that persisted long enough
+  trackedObjects.forEach(obj => {
+    if (!obj.confirmed && obj.seenStreak >= FRAMES_TO_CONFIRM) obj.confirmed = true;
+  });
+
+  // drop objects missed too long
+  trackedObjects = trackedObjects.filter(obj => obj.missedStreak < FRAMES_TO_DROP);
+}
+
+function renderCart() {
+  const counts = {};
+  trackedObjects.forEach(obj => {
+    if (!obj.confirmed) return;
+    const p = PRODUCT_MAP[obj.class];
+    counts[p.name] = (counts[p.name] || 0) + 1;
+  });
+
+  const body = document.getElementById('cartBody');
+  body.innerHTML = '';
+  let total = 0;
+  Object.keys(PRODUCT_MAP).forEach(cls => {
+    const p = PRODUCT_MAP[cls];
+    const qty = counts[p.name];
+    if (!qty) return;
+    total += qty * p.price;
+    body.innerHTML += `<tr><td>${p.name}</td><td>× ${qty}</td><td>₹${qty*p.price}</td></tr>`;
+  });
+  document.getElementById('total').innerText = `TOTAL ₹${total}`;
+}
+
+function drawBoxes(detections) {
+  const canvas = document.getElementById('overlay');
+  const ctx = canvas.getContext('2d');
+  const video = document.getElementById('video');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.lineWidth = 3;
+  ctx.font = '18px sans-serif';
+
+  trackedObjects.forEach(obj => {
+    if (obj.missedStreak > 0) return; // don't draw stale boxes
+    const p = PRODUCT_MAP[obj.class];
+    if (!p) return;
+    const [x, y, w, h] = obj.box;
+    ctx.strokeStyle = obj.confirmed ? '#00ff00' : '#ffaa00';
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = obj.confirmed ? '#00ff00' : '#ffaa00';
+    ctx.fillText(`${p.name}${obj.confirmed ? '' : ' (...)'}`, x, y > 20 ? y - 5 : y + 20);
+  });
+}
+
+async function main() {
+  const video = document.getElementById('video');
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  video.srcObject = stream;
+  await new Promise(res => video.onloadedmetadata = res);
+
+  document.getElementById('status').innerText = 'Loading COCO-SSD model...';
+  const model = await cocoSsd.load();
+  document.getElementById('status').innerText = 'Model loaded. Detecting...';
+
+  async function loop() {
+    const detections = await model.detect(video);
+    updateTracker(detections);
+    drawBoxes(detections);
+    renderCart();
+    setTimeout(loop, 200); // ~5 fps detection loop, plenty for this test
+  }
+  loop();
+}
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  trackedObjects = [];
+  renderCart();
+});
+
+main().catch(err => {
+  document.getElementById('status').innerText = 'Error: ' + err.message;
+});
+</script>
+</body>
+</html>
