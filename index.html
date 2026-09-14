@@ -33,11 +33,14 @@
     </table>
     <div id="total">TOTAL ₹0</div>
     <button id="clearBtn">Clear Cart</button>
+    <button id="barcodeBtn">Barcode Scan</button>
+    <div id="barcodeReader" style="width:300px; margin-top:10px;"></div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 // ---------- Product mapping (fake supermarket) ----------
 const PRODUCT_MAP = {
@@ -47,6 +50,14 @@ const PRODUCT_MAP = {
   cup:    { name: "Coffee",    price: 80 },
   banana: { name: "Banana",    price: 30 },
 };
+
+// ---------- Barcode fallback catalogue (placeholder codes — replace later) ----------
+const BARCODE_CATALOG = {
+  "1111111111": { name: "Coca-Cola", price: 40 },
+  "2222222222": { name: "Lays",      price: 20 },
+  "3333333333": { name: "Maggi",     price: 15 },
+};
+let manualCart = {}; // { productName: qty } — items added via barcode scan
 
 // ---------- Tracker config ----------
 const IOU_MATCH_THRESHOLD = 0.3;
@@ -117,16 +128,25 @@ function renderCart() {
     const p = PRODUCT_MAP[obj.class];
     counts[p.name] = (counts[p.name] || 0) + 1;
   });
+  // merge in barcode-scanned items
+  Object.keys(manualCart).forEach(name => {
+    counts[name] = (counts[name] || 0) + manualCart[name];
+  });
+
+  // combined price lookup: AI product map + barcode catalog
+  const priceByName = {};
+  Object.values(PRODUCT_MAP).forEach(p => priceByName[p.name] = p.price);
+  Object.values(BARCODE_CATALOG).forEach(p => priceByName[p.name] = p.price);
 
   const body = document.getElementById('cartBody');
   body.innerHTML = '';
   let total = 0;
-  Object.keys(PRODUCT_MAP).forEach(cls => {
-    const p = PRODUCT_MAP[cls];
-    const qty = counts[p.name];
+  Object.keys(counts).forEach(name => {
+    const qty = counts[name];
+    const price = priceByName[name];
     if (!qty) return;
-    total += qty * p.price;
-    body.innerHTML += `<tr><td>${p.name}</td><td>× ${qty}</td><td>₹${qty*p.price}</td></tr>`;
+    total += qty * price;
+    body.innerHTML += `<tr><td>${name}</td><td>× ${qty}</td><td>₹${qty*price}</td></tr>`;
   });
   document.getElementById('total').innerText = `TOTAL ₹${total}`;
 }
@@ -175,7 +195,41 @@ async function main() {
 
 document.getElementById('clearBtn').addEventListener('click', () => {
   trackedObjects = [];
+  manualCart = {};
   renderCart();
+});
+
+// ---------- Barcode scan mode ----------
+let html5QrCode = null;
+let scanning = false;
+
+document.getElementById('barcodeBtn').addEventListener('click', async () => {
+  const readerDiv = document.getElementById('barcodeReader');
+  if (!scanning) {
+    html5QrCode = new Html5Qrcode("barcodeReader");
+    await html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 250 },
+      (decodedText) => {
+        const product = BARCODE_CATALOG[decodedText];
+        if (product) {
+          manualCart[product.name] = (manualCart[product.name] || 0) + 1;
+          renderCart();
+        } else {
+          alert("Unknown barcode: " + decodedText);
+        }
+      },
+      () => {} // ignore per-frame scan failures
+    );
+    scanning = true;
+    document.getElementById('barcodeBtn').innerText = "Stop Barcode Scan";
+  } else {
+    await html5QrCode.stop();
+    html5QrCode.clear();
+    readerDiv.innerHTML = '';
+    scanning = false;
+    document.getElementById('barcodeBtn').innerText = "Barcode Scan";
+  }
 });
 
 main().catch(err => {
