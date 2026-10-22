@@ -1,0 +1,9 @@
+# Versions below are the ones actually used/tested (Python 3.12, Linux x86_64 CPU sandbox).
+numpy>=2.0
+opencv-contrib-python>=4.8   # cv2.barcode needs >=4.8
+onnxruntime>=1.18
+supervision==0.25.1       # ByteTrack (removed from supervision >=0.31; successor package: roboflow `trackers`)
+PyYAML>=6.0
+streamlit>=1.40
+pytest>=8.0
+zxing-cpp>=2.2         # barcode decoding (default backend)

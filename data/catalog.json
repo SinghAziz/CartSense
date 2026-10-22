@@ -1,0 +1,81 @@
+{
+  "_meta": {
+    "mock_data": true,
+    "currency": "USD",
+    "note": "MOCK sample products/prices - not authoritative retailer data. Edit freely."
+  },
+  "products": [
+    {
+      "sku_id": "SKU-1001",
+      "name": "Mock Mineral Water 500ml",
+      "price_cents": 120,
+      "category": "beverages",
+      "barcodes": [
+        "5900000000015"
+      ],
+      "detector_classes": [
+        "bottle"
+      ]
+    },
+    {
+      "sku_id": "SKU-1002",
+      "name": "Mock Sparkling Water 1L",
+      "price_cents": 180,
+      "category": "beverages",
+      "barcodes": [
+        "5900000000022"
+      ],
+      "detector_classes": [
+        "bottle"
+      ]
+    },
+    {
+      "sku_id": "SKU-2001",
+      "name": "Mock Banana (each)",
+      "price_cents": 35,
+      "category": "produce",
+      "barcodes": [
+        "5900000000039"
+      ],
+      "detector_classes": [
+        "banana"
+      ]
+    },
+    {
+      "sku_id": "SKU-2002",
+      "name": "Mock Apple (each)",
+      "price_cents": 60,
+      "category": "produce",
+      "barcodes": [
+        "5900000000046"
+      ],
+      "detector_classes": [
+        "apple"
+      ]
+    },
+    {
+      "sku_id": "SKU-2003",
+      "name": "Mock Orange (each)",
+      "price_cents": 70,
+      "category": "produce",
+      "barcodes": [
+        "5900000000053"
+      ],
+      "detector_classes": [
+        "orange"
+      ]
+    },
+    {
+      "sku_id": "SKU-3001",
+      "name": "Mock Ceramic Mug",
+      "price_cents": 450,
+      "category": "household",
+      "barcodes": [
+        "5900000000060"
+      ],
+      "detector_classes": [
+        "cup"
+      ]
+    }
+  ]
+}
