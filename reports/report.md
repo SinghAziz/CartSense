@@ -12,7 +12,7 @@ Generated on the machine that ran it: `Linux-6.18.44-fc-v140-x86_64-with-glibc2.
 - Detection mAP, precision/recall: **not measured** - no labelled grocery evaluation set. Use `pycocotools` once one exists.
 
 ## SYNTHETIC (code-path validation only; NOT recognition accuracy)
-- Automated tests: `28 passed in 2.02s`.
+- This report snapshot predates the inventory/fusion additions. Current test result from the implementation session: `38 passed` (synthetic/unit checks; not recognition accuracy).
 - Synthetic demo (stub detector, real barcode decode + ByteTrack + events):
 ```
 SYNTHETIC DEMO (stub detector; barcode decoding is real) - not evidence of real-world accuracy
@@ -33,12 +33,14 @@ ONNX Runtime + YOLOX weights (detection), supervision ByteTrack (tracking), zxin
 ## Custom CartSense code (no suitable off-the-shelf equivalent)
 Catalogue, identification rules, zone-crossing event engine + state machine, idempotent audited cart, billing, manual-correction workflow, metrics helpers, synthetic fixtures.
 
+The current code also provides an instance inventory lifecycle (`detected`, `confirmed_present`, `occluded`, `removal_candidate`, `removed`, `unresolved`), an explainable evidence fusion result, optional OCR adapter contract, optional YOLO adapter contract, and evaluation helpers for labelled data. The inventory is diagnostic and does not bypass event validation to alter the authoritative cart.
+
 ## Stubs / not validated
 - Grocery SKU recognition from vision (generic COCO classes only; SKU comes from barcode or manual review).
 - Real shopping-cart footage, real-world event accuracy, cart-state accuracy: **untested**.
 - Phone-stream input (`cli.py video <url>`) and webcam: supported by OpenCV capture, **not tested here**. CoreML/Apple-Silicon acceleration: configured, **not tested**. Streamlit UI: launched headlessly only.
-- On-device mobile inference and ML Kit: not started.
-- Cross-track dedup (same item re-tracked under a new ID) is NOT implemented.
+- On-device mobile inference and ML Kit: not started. Optional YOLO requires separately installed Ultralytics and caller-supplied weights; optional EasyOCR requires separately installed EasyOCR. Neither is loaded by default.
+- Cross-track physical re-identification is not implemented. Event dedupe keys are unique per processing run to prevent ID reuse across separate clips from suppressing valid events.
 
 ## Known failure cases
 - Barcode must be visible and large enough; OpenCV backend failed on frame-sized images where zxing succeeded (see tests).

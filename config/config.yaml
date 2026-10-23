@@ -1,4 +1,5 @@
 detector:
+  backend: yolox                    # yolox | yolo (optional Ultralytics adapter)
   model_path: models/yolox_tiny.onnx   # YOLOX-tiny COCO, Apache-2.0
   input_size: 416
   conf_threshold: 0.30
@@ -11,7 +12,9 @@ catalog:
   allow_class_only_sku: false          # generic class -> SKU is NOT trusted by default
   conflict_on_class_mismatch: true
 video: {frame_stride: 1}
-tracker: {frame_rate: 30}
+tracker: {frame_rate: 30, confirm_hits: 3, removal_misses: 15}
+ocr: {enabled: false, backend: easyocr} # optional; package is not installed by default
+learning: {path: data/local_learned_rules.json} # explicit operator feedback saved locally; ignored by git
 events:
   zone: [0.5, 0.0, 1.0, 1.0]           # normalised x1,y1,x2,y2 "cart zone"; box centre decides in/out
   min_track_hits: 3

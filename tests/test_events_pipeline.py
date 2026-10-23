@@ -70,9 +70,10 @@ def test_pipeline_synthetic_video_end_to_end(tmp_path, cat, direction):
                          [dict(type="ADD", sku="SKU-1001", t=0.8)], tol_s=1.0)["tp"] == 1
 
 @pytest.mark.skipif(not os.path.exists("models/yolox_tiny.onnx") or not os.path.exists("data/samples/bus.jpg"), reason="weights/sample missing")
-def test_real_detector_smoke_on_sample_image():
+def test_real_detector_smoke_on_sample_image(tmp_path):
     import cv2
-    pipe, _, _ = build(load_config()); r = pipe.process_image(cv2.imread("data/samples/bus.jpg"))
+    cfg = load_config(); cfg["learning"] = {"path": str(tmp_path / "isolated-rules.json")}
+    pipe, _, _ = build(cfg); r = pipe.process_image(cv2.imread("data/samples/bus.jpg"))
     labels = {d.label for d in r["detections"]}
     assert "bus" in labels and "person" in labels                       # structural/sanity check only, 1 image
     assert all(i.sku_id is None for i in r["identifications"])          # generic COCO classes never become SKUs

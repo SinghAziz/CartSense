@@ -22,6 +22,7 @@ class _TS:
 class EventEngine:
     def __init__(self, identifier, session_id, cfg, frame_wh=None):
         self.idf, self.sid, self.c = identifier, session_id, cfg
+        self.run_id = uuid.uuid4().hex[:10]
         self.tracks, self.emitted = {}, set()
         self.states = {}      # track_id -> last lifecycle state (OBSERVED/TRACKED) for display
 
@@ -73,12 +74,12 @@ class EventEngine:
         label = ts.labels.most_common(1)[0][0]
         mean_conf = sum(ts.confs) / len(ts.confs)
         ident = self.idf.identify(label, mean_conf, ts.barcodes)
-        key = f"{self.sid}:{tid}:{typ}:{ts.transitions}"; ts.transitions += 1
+        key = f"{self.sid}:{self.run_id}:{tid}:{typ}:{ts.transitions}"; ts.transitions += 1
         ev = Event(event_id="E-" + uuid.uuid4().hex[:8], session_id=self.sid,
                    timestamp=dt.datetime.now(dt.timezone.utc).isoformat(), media_time_s=t,
                    event_type=typ, state="OBSERVED", sku_id=ident.sku_id, track_id=tid,
                    verification="BARCODE_VERIFIED" if ident.method == "barcode" and ident.status == "RESOLVED"
-                   else ("CLASS_ONLY" if ident.method == "class_only" else "UNRESOLVED"),
+                   else ("CLASS_ONLY" if ident.method in ("class_only", "learned_class", "learned_barcode") else "UNRESOLVED"),
                    detector_confidence=round(mean_conf, 4),
                    evidence=f"{why}; track hits={ts.hits}; class={label}; id={ident.status}/{ident.method}: {ident.reason}",
                    dedupe_key=key, frame_idx=frame_idx)
@@ -90,7 +91,7 @@ class EventEngine:
             ev.set_state("REJECTED"); ev.evidence += " | rejected: low detector confidence"
         elif typ == "UNKNOWN" or ident.status != "RESOLVED":
             ev.set_state("NEEDS_REVIEW")
-        elif ident.method == "class_only" and self.c["auto_accept_requires_barcode"]:
+        elif ident.method in ("class_only", "learned_class", "learned_barcode") and self.c["auto_accept_requires_barcode"]:
             ev.set_state("NEEDS_REVIEW"); ev.evidence += " | class-only identification needs barcode/manual check"
         else:
             ev.set_state("ACCEPTED")

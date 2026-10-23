@@ -1,5 +1,6 @@
 """Shared dataclasses (CartSense-specific)."""
 from dataclasses import dataclass, field, asdict
+import time, uuid
 from typing import Optional
 
 EVENT_STATES = ["OBSERVED", "TRACKED", "CANDIDATE_ADD", "CANDIDATE_REMOVE",
@@ -12,6 +13,13 @@ class Detection:
     label: str
     confidence: float      # raw detector confidence
     track_id: Optional[int] = None
+    observation_id: str = field(default_factory=lambda: "O-" + uuid.uuid4().hex[:12])
+    timestamp: float = field(default_factory=time.time)
+    model_id: str = "unknown"
+
+    @property
+    def xyxy(self):
+        return self.bbox
 
 @dataclass
 class BarcodeRead:
@@ -28,6 +36,11 @@ class Identification:
     barcode: Optional[str] = None
     detector_label: Optional[str] = None
     detector_confidence: Optional[float] = None   # raw, never fused
+    confidence_category: str = "unknown"
+    evidence_sources: list = field(default_factory=list)
+    candidates: list = field(default_factory=list)
+    conflict: bool = False
+    review_required: bool = True
 
 @dataclass
 class Event:

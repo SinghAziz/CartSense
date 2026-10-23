@@ -23,6 +23,8 @@ poetry.lock
 .env
 .env.*
 !.env.example
+data/local_learned_rules.json
+data/local_learned_rules.json.tmp
 *.pem
 *.key
 *.p12

@@ -49,6 +49,8 @@ with c1:
             st.write("Latency ms:", {k: round(v, 1) for k, v in r["latency_ms"].items()})
         else:
             st.write(f"{r['frames']} frames processed. Annotated video saved to `{r['out_path']}` (open it locally).")
+            with st.expander("Per-instance inventory diagnostics"):
+                st.json(r.get("inventory", {"status": "not available"}))
             tot = r["latency_ms"]["total"]
             if tot: st.write(f"Per-frame latency ms: median {np.median(tot):.1f}, p95 {np.percentile(tot, 95):.1f} (this machine)")
     else:

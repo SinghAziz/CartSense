@@ -5,5 +5,6 @@ onnxruntime>=1.18
 supervision==0.25.1       # ByteTrack (removed from supervision >=0.31; successor package: roboflow `trackers`)
 PyYAML>=6.0
 streamlit>=1.40
+Pillow>=9.0                # Tk live inspection console
 pytest>=8.0
 zxing-cpp>=2.2         # barcode decoding (default backend)
