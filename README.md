@@ -1,76 +1,38 @@
-# CartSense – Feasibility Prototype
+# CartSense ML prototype
 
-Single HTML file. No backend, no build step, no database, no API keys.
+Pipeline: image/video/webcam → YOLOX detection → ByteTrack → barcode (zxing-cpp) → identification → zone-crossing candidate events → validated, idempotent cart → running bill.
 
-## What it does
-- Opens your webcam.
-- Detects multiple objects at once using TensorFlow.js + COCO-SSD (pretrained model, loaded from CDN).
-- Tracks each physical object across frames (simple IOU tracker) so it isn't
-  double-counted every frame.
-- Maps detected object classes to fake products:
-  - bottle → Coca-Cola → ₹40
-  - apple → Apple → ₹20
-  - book → Notebook → ₹50
-  - cup → Coffee → ₹80
-  - banana → Banana → ₹30
-- Shows a live cart with quantity and total price.
-- "Clear Cart" button resets everything.
+**Honest scope.** The detector is a *generic COCO* model (80 classes). It does **not** recognise grocery SKUs. A SKU is only assigned from a catalogue **barcode** match (or manual review). Catalogue data is **mock**. No payments. The PRD referenced in the brief was not attached to the build session, so requirements come from the brief only.
 
-An object needs to be seen for a few consecutive frames before it's "confirmed"
-into the cart (shown as orange box while pending, green once confirmed). If you
-remove it and it stays gone for a short while, it drops out of the cart
-automatically.
-
-## How to run on MacBook (Chrome)
-You cannot just double-click index.html (file:// URLs block the webcam in
-Chrome). Run a tiny local server instead — one command, no installation needed
-if you have Python (Mac ships with it):
-
+## Setup
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+# weights (Apache-2.0, ~20 MB) - already in models/ if you got the zip:
+curl -L -o models/yolox_tiny.onnx https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx
 ```
-cd cartsense
-python3 -m http.server 8000
+On Apple Silicon `onnxruntime` will use CoreML if available (config `detector.providers`); otherwise CPU. Untested on Mac.
+
+## Run
+```bash
+python cli.py image data/samples/bus.jpg          # real detector -> outputs/annotated.jpg
+python cli.py demo                                # SYNTHETIC end-to-end: video -> ADD event -> cart -> bill
+python cli.py video path/to/phone_clip.mp4 --out outputs/out.mp4   # also: 0 (webcam) or a phone-stream URL
+python cli.py live                                      # live camera window with zones, boxes, labels, track IDs, cart, bill, and events
+# In the live window: Y confirms the oldest review with a known SKU; N rejects it.
+python cli.py live 0                                    # choose a specific webcam index
+# In the terminal: type `y` + Enter to confirm, `n` + Enter to reject, or `q` + Enter to stop.
+streamlit run app.py                              # dashboard with review/correct/reset
+python -m pytest -q                               # tests
+python -m src.evaluation.report                   # writes reports/report.md
 ```
+## Demo workflow
+Set the camera so the cart interior is in `events.zone` (config). Record a clip where a barcode-facing item moves from outside the zone into it → `python cli.py video clip.mp4` → ADD event ACCEPTED if barcode matches catalogue, else NEEDS_REVIEW → fix it in Streamlit → bill updates.
 
-Then open Chrome and go to:
-```
-http://localhost:8000
-```
-Allow camera access when prompted. localhost is treated as secure, so no
-HTTPS/certificates needed.
+## Edit the catalogue
+`data/catalog.json` (sku, name, price_cents, barcodes, detector_classes). No retraining needed.
 
-## How to run later on Android Chrome
-Camera access requires a "secure context" — either `localhost` or `https://`.
-Two easy options when you're ready:
+## Layout
+`src/detection` (YOLOX ONNX) · `src/barcode` · `src/tracking` · `src/identification` · `src/events` (state machine) · `src/cart` · `src/pricing` · `src/evaluation` · `src/input` (sources + synthetic fixtures) · `src/pipeline.py` · `config/config.yaml`.
 
-1. **Same Wi-Fi + ngrok (fastest):**
-   ```
-   python3 -m http.server 8000
-   ngrok http 8000
-   ```
-   Open the `https://...ngrok-free.app` URL it gives you, in Chrome on your phone.
-
-2. **Deploy free static hosting** (GitHub Pages, Netlify, Vercel) — just
-   upload index.html, you get an https:// URL automatically. No backend needed
-   since this is a pure static file.
-
-Either way, no code changes are required — the same index.html works on
-desktop or mobile Chrome.
-
-## Requirements checklist
-- **Internet required?** Yes — only to download TensorFlow.js and the
-  COCO-SSD model from the CDN on first load (and Chrome itself). No internet
-  is used for the camera feed or detection after the model has loaded; all
-  inference runs locally in the browser.
-- **HTTPS required?** Not for localhost. Yes for any other host/IP (including
-  phone access over Wi-Fi) — browsers block camera access on plain http://
-  except for localhost.
-- **API key / credentials required?** None.
-- **Backend / database?** None — everything runs client-side in the browser tab.
-
-## Known limitations (expected — this is a feasibility test only)
-- Detects generic COCO classes (bottle, cup, apple, banana, book, etc.), not
-  real product branding/labels. Your team's real model will replace this later.
-- Tracking is a simple box-overlap tracker, not re-identification — if an
-  object leaves the frame and a very similar one re-enters in a very different
-  position quickly, it may be treated as a new item.
-- ~5 detections/second, tune-able in index.html (`setTimeout(loop, 200)`).
+See `reports/report.md` for measured vs synthetic vs untested results.

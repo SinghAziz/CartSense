@@ -1,5 +1,5 @@
 """Deterministic running bill from accepted cart contents (integer cents). No payments."""
-def compute_bill(session, catalog):
+def compute_bill(session, catalog, unit_price_cents=None):
     lines, subtotal, warnings = [], 0, []
     for sku, qty in sorted(session.items.items()):
         p = catalog.get(sku)
@@ -7,9 +7,10 @@ def compute_bill(session, catalog):
             warnings.append(f"{sku}: not in catalogue, unpriced")
             lines.append(dict(sku_id=sku, name="(unknown SKU)", qty=qty, unit_cents=None, line_cents=None))
             continue
-        lt = p.price_cents * qty
+        unit_cents = unit_price_cents if unit_price_cents is not None else p.price_cents
+        lt = unit_cents * qty
         subtotal += lt
-        lines.append(dict(sku_id=sku, name=p.name, qty=qty, unit_cents=p.price_cents, line_cents=lt))
+        lines.append(dict(sku_id=sku, name=p.name, qty=qty, unit_cents=unit_cents, line_cents=lt))
     pend = session.pending()
     if pend:
         warnings.append(f"{len(pend)} event(s) need review - not included in bill")

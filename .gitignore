@@ -1,0 +1,78 @@
+# Python bytecode, caches, and test coverage
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments and local Python tooling
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+poetry.lock
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Operating-system metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editors and IDEs
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Build, packaging, and distribution artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+MANIFEST
+*.manifest
+*.spec
+
+# Generated application outputs and local recordings
+outputs/*
+!outputs/.gitkeep
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.wav
+*.csv
+
+# Temporary exports and local logs
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Notebook and tool metadata
+.ipynb_checkpoints/
+.python-version
