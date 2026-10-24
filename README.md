@@ -1,54 +1,88 @@
-# CartSense ML prototype
+# CartSense
 
-CartSense has two retained interfaces: the Python video pipeline/dashboard and an older standalone browser webcam demo (`index.html`). The Python path is the primary modular pipeline:
+CartSense is a local Python prototype for processing product images and video. Its pipeline is:
 
-`frame → YOLOX ONNX detection → ByteTrack → barcode association/identification → zone-crossing event → audited cart session → bill`
+`image/video → YOLOX ONNX detection → ByteTrack → barcode association → identification → cart events`
 
-The detector recognizes generic COCO classes, **not grocery SKUs**. Catalogue data and prices are mock data. A catalogue-matched barcode can identify a SKU; generic class, OCR, and unknown barcode evidence do not silently create a SKU. Unresolved events need operator review.
+The included detector recognizes generic COCO objects, not grocery SKUs. A catalogue barcode can identify a SKU; other evidence may need operator review. Catalogue prices are sample data, and the app does not process payments.
 
-## Setup and run
+## Requirements
+
+- macOS 12+ (Apple Silicon or Intel) or Windows 10/11, 64-bit
+- Python 3.10–3.12
+- Internet access for the first dependency installation
+- About 2 GB of free disk space recommended for Python packages and generated videos
+
+The ONNX model, sample image, and sample catalogue are included. Model weights are not downloaded at runtime. Detection runs on CPU by default when an accelerator provider is unavailable; macOS CoreML is used when ONNX Runtime offers it.
+
+## Quick start
+
+### macOS
+
+From Terminal, enter the project folder and run:
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+chmod +x setup-macos.sh
+./setup-macos.sh
+source .venv/bin/activate
 python cli.py image data/samples/bus.jpg
-python cli.py demo
-python cli.py video path/to/clip.mp4 --out outputs/out.mp4
-python cli.py live 0
-streamlit run app.py
-python -m pytest -q
 ```
 
-YOLOX Tiny ONNX weights are included in `models/`. Nothing downloads model weights at runtime. The default Python pipeline uses `yolox` configured in `config/config.yaml`; selecting `backend: yolo` requires user-supplied compatible ONNX weights and the optional `ultralytics` package. It raises an explicit unavailable error if either is missing. Do not load both detectors except when deliberately benchmarking.
+The setup script creates `.venv`, upgrades pip, and installs dependencies. If macOS does not have Python 3.10–3.12, install Python 3.12 from [python.org](https://www.python.org/downloads/) or with Homebrew (`brew install python@3.12`), then rerun the script.
 
-Barcode decoding uses zxing-cpp, with OpenCV as fallback. Unknown codes remain unresolved and are distinguishable from catalogue matches. OCR has an optional EasyOCR adapter (`src/identification/ocr.py`), disabled by default; install EasyOCR separately to enable it. OCR is exposed as review evidence only and is not currently invoked by the frame pipeline. OCR scores are separate from detection confidence.
+### Windows
 
-## Architecture
+Open PowerShell in the project folder and run:
 
-- `src/detection`: detector interface implementations: YOLOX ONNX baseline and optional YOLO adapter.
-- `src/common.py`: shared observations, identification results, barcode and event schemas.
-- `src/tracking`: ByteTrack adapter and detector-independent geometry.
-- `src/cart/inventory.py`: session-local tracked-instance lifecycle and diagnostics. Occlusion and prolonged absence preserve cart state; absence becomes a removal candidate, not a committed removal.
-- `src/identification`: catalogue rules, explainable fusion, text normalization and optional OCR adapter.
-- `src/barcode`: independent ZXing/OpenCV decoding.
-- `src/events`: zone-crossing transition evidence and event decisions.
-- `src/cart/session.py`: authoritative, idempotent cart events, operator review, audit, session snapshots.
-- `src/evaluation`: metric helpers. Detection mAP is left unavailable without labelled ground truth.
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\setup-windows.ps1
+.\.venv\Scripts\Activate.ps1
+python cli.py image data/samples/bus.jpg
+```
 
-The event engine requires a fixed camera and configured cart zone. Items already in the zone at track start do not create an ADD event because transfer evidence is absent. ByteTrack IDs are active-lifecycle IDs, not durable re-identification; if tracking resets, physical reconciliation requires review. The in-memory instance inventory is diagnostic and deliberately does not override the audited cart event ledger.
+If Python is not installed, install Python 3.12 from [python.org](https://www.python.org/downloads/windows/) and enable **Add python.exe to PATH**. The setup script also accepts the Python launcher (`py -3.12`) when available.
 
-`index.html` remains an independent TensorFlow.js COCO-SSD prototype with browser barcode scanning. Its placeholder barcode catalogue is mock data and it is not wired to the Python inventory/event ledger. Use the Python dashboard/pipeline for audited cart state.
+## Run CartSense
 
-### Live inspection console
+Activate the virtual environment first (see above), then run any of these from the project folder:
 
-`python cli.py live 0` opens a Tk inspection console with the video feed, a prominent cart summary and total, and a selectable detection table. It shows model/class, raw detection score, box coordinates, associated barcode, OCR availability, SKU hypothesis, and lifecycle. Click a box or select its row; double-click a row for the detailed evidence record. To add a visible item, choose its catalogue SKU in the top selector and press **Add selected image item**. **Add SKU manually** adds the chosen SKU without a selected detection. Use **Remove selected** or **Confirm selected review** for the selected track. The console reports per-frame detector/tracker/barcode latency, FPS, score distribution, identity/tracking coverage, event counts, and model availability. These detector scores are not accuracy rates or calibrated probabilities.
+```bash
+python cli.py image data/samples/bus.jpg                 # save outputs/annotated.jpg
+python cli.py demo                                        # synthetic end-to-end walkthrough
+python cli.py video path/to/clip.mp4 --out outputs/out.mp4
+python cli.py live 0                                      # default camera; Q/Esc closes the video window
+python -m streamlit run app.py                            # browser dashboard
+```
 
-Select a barcode result or object row, choose a catalogue SKU, then use **Save barcode rule** or **Learn class rule**. Rules persist locally in `data/local_learned_rules.json` and are ignored by Git. A barcode rule can resolve future reads of that barcode. A class rule maps a generic class such as `bottle` to one SKU, so it cannot distinguish brands or variants; events from learned rules still require review. Ignored classes such as `person` cannot be learned as products. **Forget class rule** removes a selected class mapping. Unknown COCO classes do not trigger model training.
+On Windows, use `py` instead of `python` if that is the command registered by your installation. Camera access may need to be enabled for Terminal/PowerShell in the operating system privacy settings. To use a different camera, pass its index, such as `python cli.py live 1`.
 
-The Python live view currently runs YOLOX ONNX with COCO-80 labels. The separate browser COCO-SSD, an additional YOLO model/weights, and OCR engine are not all active in this Python view. The console labels those components accurately; it does not fabricate comparison boxes when their model resources are absent. OCR remains adapter-only and disabled by default.
+For Streamlit, open the local URL printed in the terminal (usually `http://localhost:8501`). Stop a running command with `Ctrl+C`.
 
-## Thresholds and evaluation
+## Project map
 
-Detector, tracking, event and inventory thresholds live in `config/config.yaml`. They are provisional engineering defaults, not statistically calibrated. Synthetic tests exercise state and event logic only; they do not measure model accuracy. Metrics helpers accept labelled examples for detection precision/recall, exact SKU results, barcode outcomes, cart events and latency. No real grocery-labelled evaluation set is included, so no real-world accuracy or mAP is reported.
+- `app.py`: Streamlit dashboard for uploaded images/videos, cart review, and manual events.
+- `cli.py`: image, video, camera, and synthetic demo commands.
+- `src/`: detection, tracking, barcode decoding, identification, event processing, cart, and billing modules.
+- `config/config.yaml`: model, event zone, tracker, and catalogue settings.
+- `models/`: included YOLOX Tiny ONNX model.
+- `data/catalog.json`: editable sample catalogue. `data/local_learned_rules.json` stores local operator rules when created.
+- `outputs/`: generated annotations and demo videos.
 
-Edit `data/catalog.json` to replace mock SKUs, barcodes and prices. No backend, database, cloud service or automatic footage collection is used.
+Resource paths in the config are resolved from the project/config location, so the app can also be launched while another directory is the current working directory. Input and output paths you provide on the command line are interpreted relative to the current directory.
+
+## Notes
+
+- The configured camera zone is in `config/config.yaml`. Items already inside the zone when first seen do not produce an ADD event; the pipeline needs evidence of movement into it.
+- Unknown or conflicting barcode evidence is sent for review. The in-memory tracking IDs are not durable product identities.
+- Barcode decoding uses zxing-cpp with OpenCV fallback. OCR is optional, disabled by default, and not called from the frame pipeline.
+- `index.html` is a separate legacy browser demo and does not share the Python cart/event ledger.
+- Detector and event thresholds are engineering defaults, not calibrated performance claims. The sample data is not a real grocery evaluation set.
+
+## Troubleshooting
+
+- **`python` not found on Windows:** try `py -3.12`, or reinstall Python with PATH enabled.
+- **Package install fails:** confirm Python is 64-bit and between 3.10 and 3.12, activate `.venv`, then rerun the platform setup script.
+- **Camera cannot open:** close other camera apps, check OS camera privacy permissions, and try another camera index.
+- **Dashboard command not found:** activate `.venv` and run `python -m streamlit run app.py`.
+- **Video output is missing:** check the terminal error and confirm the output folder is writable; outputs are written under `outputs/` by default.

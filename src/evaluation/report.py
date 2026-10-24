@@ -1,5 +1,5 @@
 """python -m src.evaluation.report  -> reports/report.md  (measures latency on the sample image; runs pytest; separates measured/synthetic/untested)"""
-import platform, subprocess, sys, json, time, cv2, onnxruntime as ort, importlib.metadata as md
+import platform, subprocess, sys, time, cv2, importlib.metadata as md
 from src.setup import build, load_config
 from src.evaluation.metrics import latency_stats
 

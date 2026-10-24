@@ -1,5 +1,6 @@
 """Orchestration: input -> detect -> (track) -> barcode -> identify -> events -> cart -> bill."""
 import sys, threading, time, cv2, numpy as np
+from pathlib import Path
 from src.barcode.decoder import make_decoder
 from src.tracking.tracker import ByteTrackTracker
 from src.identification.identifier import Identifier
@@ -278,6 +279,7 @@ class Pipeline:
                 )
             if out_path:
                 if writer is None:
+                    Path(out_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
                     writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps / stride, wh)
                 writer.write(rendered)
             if display and live_ui:

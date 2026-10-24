@@ -33,7 +33,10 @@ if run and (up or cam):
         else:
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(up.name)[1]); tmp.write(up.getvalue()); tmp.close()
             out = os.path.join("outputs", "annotated_ui.mp4"); os.makedirs("outputs", exist_ok=True)
-            st.session_state.last = ("video", pipe.process_video(tmp.name, out))
+            try:
+                st.session_state.last = ("video", pipe.process_video(tmp.name, out))
+            finally:
+                os.unlink(tmp.name)
 
 c1, c2 = st.columns([3, 2])
 with c1:

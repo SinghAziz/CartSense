@@ -1,5 +1,6 @@
 """SYNTHETIC fixtures (EAN-13 renderer + moving-product video). For tests/demos only - NOT real-world evidence."""
 import numpy as np, cv2
+from pathlib import Path
 from src.common import Detection
 
 _L = ["0001101","0011001","0010011","0111101","0100011","0110001","0101111","0111011","0110111","0001011"]
@@ -26,6 +27,7 @@ class StubDetector:
 
 def make_transfer_video(path, code, direction="add", n=60, size=(960, 540), fps=30):
     """Product with a barcode slides from outside the right-half cart zone into it (add) or out of it (remove)."""
+    Path(path).expanduser().parent.mkdir(parents=True, exist_ok=True)
     W, H = size; bc = ean13_image(code)
     ph, pw = bc.shape[0] + 40, bc.shape[1] + 40
     prod = np.full((ph, pw, 3), 200, np.uint8); prod[20:20 + bc.shape[0], 20:20 + bc.shape[1]] = bc
