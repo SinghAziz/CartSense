@@ -71,6 +71,19 @@ For Streamlit, open the local URL printed in the terminal (usually `http://local
 
 Resource paths in the config are resolved from the project/config location, so the app can also be launched while another directory is the current working directory. Input and output paths you provide on the command line are interpreted relative to the current directory.
 
+## Development checks
+
+Install the development tools in the active virtual environment:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m black --check .
+python -m pyflakes app.py cli.py src tests
+python -m pytest -q
+```
+
+Black formatting is configured in `pyproject.toml`. The test suite covers the local event, inventory, billing, barcode, and pipeline logic; it does not measure real-world grocery recognition accuracy.
+
 ## Notes
 
 - The configured camera zone is in `config/config.yaml`. Items already inside the zone when first seen do not produce an ADD event; the pipeline needs evidence of movement into it.

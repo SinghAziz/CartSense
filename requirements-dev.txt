@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Formatting, linting, and test tools.
+black>=24.10
+pyflakes>=3.2
+pytest>=8.0

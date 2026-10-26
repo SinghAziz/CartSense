@@ -1,23 +1,42 @@
 """python -m src.evaluation.report  -> reports/report.md  (measures latency on the sample image; runs pytest; separates measured/synthetic/untested)"""
+
 import platform, subprocess, sys, time, cv2, importlib.metadata as md
 from src.setup import build, load_config
 from src.evaluation.metrics import latency_stats
 
+
 def v(p):
-    try: return md.version(p)
-    except Exception: return "n/a"
+    try:
+        return md.version(p)
+    except Exception:
+        return "n/a"
+
 
 def main():
-    cfg = load_config(); pipe, cat, _ = build(cfg); img = cv2.imread("data/samples/bus.jpg")
-    for _ in range(3): pipe.det.detect(img)            # warm-up
+    cfg = load_config()
+    pipe, cat, _ = build(cfg)
+    img = cv2.imread("data/samples/bus.jpg")
+    for _ in range(3):
+        pipe.detector.detect(img)  # warm-up
     lat = []
     for _ in range(30):
-        t = time.perf_counter(); pipe.det.detect(img); lat.append((time.perf_counter() - t) * 1000)
-    st = latency_stats(lat); res = pipe.process_image(img)
-    pt = subprocess.run([sys.executable, "-m", "pytest", "-q"], capture_output=True, text=True).stdout.strip().splitlines()[-1]
-    demo = subprocess.run([sys.executable, "cli.py", "demo"], capture_output=True, text=True).stdout
+        t = time.perf_counter()
+        pipe.detector.detect(img)
+        lat.append((time.perf_counter() - t) * 1000)
+    st = latency_stats(lat)
+    res = pipe.process_image(img)
+    pt = (
+        subprocess.run(
+            [sys.executable, "-m", "pytest", "-q"], capture_output=True, text=True
+        )
+        .stdout.strip()
+        .splitlines()[-1]
+    )
+    demo = subprocess.run(
+        [sys.executable, "cli.py", "demo"], capture_output=True, text=True
+    ).stdout
     md_ = f"""# CartSense prototype report
-Generated on the machine that ran it: `{platform.platform()}`, Python {platform.python_version()}, {__import__('os').cpu_count()} CPU(s), ORT providers {pipe.det.providers}.
+Generated on the machine that ran it: `{platform.platform()}`, Python {platform.python_version()}, {__import__('os').cpu_count()} CPU(s), ORT providers {pipe.detector.providers}.
 
 ## Model
 - Detector: **YOLOX-tiny** (416x416, COCO-80 pretrained, `models/yolox_tiny.onnx`), Megvii YOLOX release 0.1.1rc0, **Apache-2.0** (commercial use permitted; verify COCO-weight terms with counsel before shipping).
@@ -57,5 +76,9 @@ Catalogue, identification rules, zone-crossing event engine + state machine, ide
 - Zone model assumes a fixed camera; moving camera = invalid events.
 - Items starting inside the zone never generate ADD; their later REMOVE is held for review.
 """
-    open("reports/report.md", "w").write(md_); print(md_)
-if __name__ == "__main__": main()
+    open("reports/report.md", "w").write(md_)
+    print(md_)
+
+
+if __name__ == "__main__":
+    main()

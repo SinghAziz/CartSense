@@ -1,4 +1,5 @@
 """Build detector/catalogue/session/pipeline from config."""
+
 from pathlib import Path
 import yaml
 from src.detection.yolox_onnx import make_detector
@@ -12,24 +13,39 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 def load_config(path=None):
     """Load config and anchor its file resources to the config file location."""
-    config_path = Path(path) if path is not None else PROJECT_ROOT / "config" / "config.yaml"
+    config_path = (
+        Path(path) if path is not None else PROJECT_ROOT / "config" / "config.yaml"
+    )
     config_path = config_path.expanduser().resolve()
     with config_path.open(encoding="utf-8") as stream:
-        cfg = yaml.safe_load(stream)
+        config = yaml.safe_load(stream)
 
-    base = config_path.parent.parent
-    for key_path in (("detector", "model_path"), ("catalog", "path"), ("learning", "path")):
+    resource_root = config_path.parent.parent
+    for key_path in (
+        ("detector", "model_path"),
+        ("catalog", "path"),
+        ("learning", "path"),
+    ):
         section, key = key_path
-        value = cfg.get(section, {}).get(key)
+        value = config.get(section, {}).get(key)
         if value:
             resource = Path(value).expanduser()
-            cfg[section][key] = str(resource if resource.is_absolute() else (base / resource).resolve())
-    return cfg
+            config[section][key] = str(
+                resource
+                if resource.is_absolute()
+                else (resource_root / resource).resolve()
+            )
+    return config
 
-def build(cfg=None, detector=None, decoder=None, session=None):
-    cfg = cfg or load_config()
-    cat = Catalog(cfg["catalog"]["path"]); sess = session or CartSession(cat)
+
+def build(config=None, detector=None, decoder=None, session=None):
+    config = config or load_config()
+    catalog = Catalog(config["catalog"]["path"])
+    cart_session = session or CartSession(catalog)
     if detector is None:
-        detector = make_detector(cfg["detector"])
-    learned = LearnedRules(cfg.get("learning", {}).get("path", "data/local_learned_rules.json"))
-    return Pipeline(cfg, detector, cat, sess, decoder, learned), cat, sess
+        detector = make_detector(config["detector"])
+    learned_rules = LearnedRules(
+        config.get("learning", {}).get("path", "data/local_learned_rules.json")
+    )
+    pipeline = Pipeline(config, detector, catalog, cart_session, decoder, learned_rules)
+    return pipeline, catalog, cart_session

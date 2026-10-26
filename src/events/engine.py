@@ -1,98 +1,212 @@
-"""Cart-event engine: zone-crossing evidence from tracked objects -> candidate ADD/REMOVE/UNKNOWN events.
-Assumes a fixed camera and a configurable 'cart zone'. Tracks that START inside the zone produce no ADD
-(no transfer evidence). Thresholds come from config."""
-import uuid, datetime as dt
+"""Build cart events from tracked objects crossing a configured zone.
+
+The camera must remain fixed. A track that starts inside the cart zone does not
+produce an ADD event because the pipeline has no evidence that it entered.
+"""
+
+import datetime as dt
+import uuid
 from collections import Counter
 from dataclasses import dataclass, field
+
 from src.common import Event
+
 
 @dataclass
 class TrackObs:
     track_id: int
     bbox: tuple
     label: str
-    conf: float
-    barcodes: list = field(default_factory=list)   # barcodes read THIS frame on/in this object
+    confidence: float
+    barcodes: list = field(default_factory=list)
 
-class _TS:
-    def __init__(self):
-        self.hits = 0; self.phase = None; self.in_run = 0; self.out_run = 0; self.last_frame = 0
-        self.labels = Counter(); self.confs = []; self.barcodes = []; self.transitions = 0
+
+@dataclass
+class _TrackState:
+    observation_count: int = 0
+    zone_phase: str | None = None
+    consecutive_inside_frames: int = 0
+    consecutive_outside_frames: int = 0
+    last_frame_index: int = 0
+    label_counts: Counter = field(default_factory=Counter)
+    confidence_scores: list = field(default_factory=list)
+    barcodes: list = field(default_factory=list)
+    transition_count: int = 0
+
 
 class EventEngine:
-    def __init__(self, identifier, session_id, cfg, frame_wh=None):
-        self.idf, self.sid, self.c = identifier, session_id, cfg
+    def __init__(self, identifier, session_id, config):
+        self.identifier = identifier
+        self.session_id = session_id
+        self.config = config
         self.run_id = uuid.uuid4().hex[:10]
-        self.tracks, self.emitted = {}, set()
-        self.states = {}      # track_id -> last lifecycle state (OBSERVED/TRACKED) for display
+        self.tracks = {}
 
-    def _inside(self, bbox, wh):
-        x1, y1, x2, y2 = self.c["zone"]; W, H = wh
-        cx, cy = (bbox[0] + bbox[2]) / 2 / W, (bbox[1] + bbox[3]) / 2 / H
-        return x1 <= cx <= x2 and y1 <= cy <= y2
+    def _inside(self, bbox, frame_size):
+        zone_x1, zone_y1, zone_x2, zone_y2 = self.config["zone"]
+        width, height = frame_size
+        center_x = (bbox[0] + bbox[2]) / 2 / width
+        center_y = (bbox[1] + bbox[3]) / 2 / height
+        return zone_x1 <= center_x <= zone_x2 and zone_y1 <= center_y <= zone_y2
 
-    def update(self, frame_idx, t, wh, obs):
-        n, evs = self.c["min_frames_confirm"], []
-        for o in obs:
-            ts = self.tracks.setdefault(o.track_id, _TS())
-            ts.hits += 1; ts.last_frame = frame_idx
-            ts.labels[o.label] += 1; ts.confs.append(o.conf); ts.barcodes += list(o.barcodes)
-            self.states[o.track_id] = "TRACKED" if ts.hits >= self.c["min_track_hits"] else "OBSERVED"
-            if self._inside(o.bbox, wh): ts.in_run += 1; ts.out_run = 0
-            else: ts.out_run += 1; ts.in_run = 0
-            ready = ts.hits >= self.c["min_track_hits"]
-            if ts.in_run >= n:
-                if ts.phase == "outside" and ready:
-                    evs.append(self._emit("ADD", o.track_id, ts, frame_idx, t, "entered cart zone"))
-                ts.phase = "inside"
-            elif ts.out_run >= n:
-                if ts.phase == "inside" and ready:
-                    evs.append(self._emit("REMOVE", o.track_id, ts, frame_idx, t, "left cart zone"))
-                ts.phase = "outside"
-        for tid, ts in list(self.tracks.items()):                # lost tracks
-            if frame_idx - ts.last_frame > self.c["max_lost_frames"]:
-                e = self._lost(tid, ts, frame_idx, t)
-                if e: evs.append(e)
-                del self.tracks[tid]
-        return evs
+    def update(self, frame_index, media_time_seconds, frame_size, observations):
+        confirmation_frames = self.config["min_frames_confirm"]
+        events = []
 
-    def flush(self, frame_idx, t):
-        evs = []
-        for tid, ts in list(self.tracks.items()):
-            e = self._lost(tid, ts, frame_idx, t)
-            if e: evs.append(e)
-            del self.tracks[tid]
-        return evs
+        for observation in observations:
+            track_state = self.tracks.setdefault(observation.track_id, _TrackState())
+            track_state.observation_count += 1
+            track_state.last_frame_index = frame_index
+            track_state.label_counts[observation.label] += 1
+            track_state.confidence_scores.append(observation.confidence)
+            track_state.barcodes.extend(observation.barcodes)
 
-    def _lost(self, tid, ts, frame_idx, t):
-        mid = (ts.phase == "outside" and ts.in_run > 0) or (ts.phase == "inside" and ts.out_run > 0)
-        if mid and ts.hits >= self.c["min_track_hits"]:
-            return self._emit("UNKNOWN", tid, ts, frame_idx, t, "track lost mid-transfer; direction not confirmed")
+            is_inside = self._inside(observation.bbox, frame_size)
+            if is_inside:
+                track_state.consecutive_inside_frames += 1
+                track_state.consecutive_outside_frames = 0
+            else:
+                track_state.consecutive_outside_frames += 1
+                track_state.consecutive_inside_frames = 0
+
+            track_is_ready = (
+                track_state.observation_count >= self.config["min_track_hits"]
+            )
+            if track_state.consecutive_inside_frames >= confirmation_frames:
+                if track_state.zone_phase == "outside" and track_is_ready:
+                    events.append(
+                        self._emit(
+                            "ADD",
+                            observation.track_id,
+                            track_state,
+                            frame_index,
+                            media_time_seconds,
+                            "entered cart zone",
+                        )
+                    )
+                track_state.zone_phase = "inside"
+            elif track_state.consecutive_outside_frames >= confirmation_frames:
+                if track_state.zone_phase == "inside" and track_is_ready:
+                    events.append(
+                        self._emit(
+                            "REMOVE",
+                            observation.track_id,
+                            track_state,
+                            frame_index,
+                            media_time_seconds,
+                            "left cart zone",
+                        )
+                    )
+                track_state.zone_phase = "outside"
+
+        for track_id, track_state in list(self.tracks.items()):
+            frames_since_last_seen = frame_index - track_state.last_frame_index
+            if frames_since_last_seen > self.config["max_lost_frames"]:
+                event = self._lost(
+                    track_id, track_state, frame_index, media_time_seconds
+                )
+                if event:
+                    events.append(event)
+                del self.tracks[track_id]
+        return events
+
+    def flush(self, frame_index, media_time_seconds):
+        events = []
+        for track_id, track_state in list(self.tracks.items()):
+            event = self._lost(track_id, track_state, frame_index, media_time_seconds)
+            if event:
+                events.append(event)
+            del self.tracks[track_id]
+        return events
+
+    def _lost(self, track_id, track_state, frame_index, media_time_seconds):
+        mid_transfer = (
+            track_state.zone_phase == "outside"
+            and track_state.consecutive_inside_frames > 0
+        ) or (
+            track_state.zone_phase == "inside"
+            and track_state.consecutive_outside_frames > 0
+        )
+        track_is_ready = track_state.observation_count >= self.config["min_track_hits"]
+        if mid_transfer and track_is_ready:
+            return self._emit(
+                "UNKNOWN",
+                track_id,
+                track_state,
+                frame_index,
+                media_time_seconds,
+                "track lost mid-transfer; direction not confirmed",
+            )
         return None
 
-    def _emit(self, typ, tid, ts, frame_idx, t, why):
-        label = ts.labels.most_common(1)[0][0]
-        mean_conf = sum(ts.confs) / len(ts.confs)
-        ident = self.idf.identify(label, mean_conf, ts.barcodes)
-        key = f"{self.sid}:{self.run_id}:{tid}:{typ}:{ts.transitions}"; ts.transitions += 1
-        ev = Event(event_id="E-" + uuid.uuid4().hex[:8], session_id=self.sid,
-                   timestamp=dt.datetime.now(dt.timezone.utc).isoformat(), media_time_s=t,
-                   event_type=typ, state="OBSERVED", sku_id=ident.sku_id, track_id=tid,
-                   verification="BARCODE_VERIFIED" if ident.method == "barcode" and ident.status == "RESOLVED"
-                   else ("CLASS_ONLY" if ident.method in ("class_only", "learned_class", "learned_barcode") else "UNRESOLVED"),
-                   detector_confidence=round(mean_conf, 4),
-                   evidence=f"{why}; track hits={ts.hits}; class={label}; id={ident.status}/{ident.method}: {ident.reason}",
-                   dedupe_key=key, frame_idx=frame_idx)
-        ev.state_history = ["OBSERVED", "TRACKED"]; ev.state = "TRACKED"
-        if typ in ("ADD", "REMOVE"):
-            ev.set_state("CANDIDATE_" + typ)
-        # --- decision policy (all thresholds configurable) ---
-        if mean_conf < self.c["reject_below_detector_conf"]:
-            ev.set_state("REJECTED"); ev.evidence += " | rejected: low detector confidence"
-        elif typ == "UNKNOWN" or ident.status != "RESOLVED":
-            ev.set_state("NEEDS_REVIEW")
-        elif ident.method in ("class_only", "learned_class", "learned_barcode") and self.c["auto_accept_requires_barcode"]:
-            ev.set_state("NEEDS_REVIEW"); ev.evidence += " | class-only identification needs barcode/manual check"
+    def _emit(
+        self,
+        event_type,
+        track_id,
+        track_state,
+        frame_index,
+        media_time_seconds,
+        reason,
+    ):
+        label = track_state.label_counts.most_common(1)[0][0]
+        mean_confidence = sum(track_state.confidence_scores) / len(
+            track_state.confidence_scores
+        )
+        identification = self.identifier.identify(
+            label, mean_confidence, track_state.barcodes
+        )
+        dedupe_key = (
+            f"{self.session_id}:{self.run_id}:{track_id}:{event_type}:"
+            f"{track_state.transition_count}"
+        )
+        track_state.transition_count += 1
+
+        if identification.method == "barcode" and identification.status == "RESOLVED":
+            verification = "BARCODE_VERIFIED"
+        elif identification.method in (
+            "class_only",
+            "learned_class",
+            "learned_barcode",
+        ):
+            verification = "CLASS_ONLY"
         else:
-            ev.set_state("ACCEPTED")
-        return ev
+            verification = "UNRESOLVED"
+
+        event = Event(
+            event_id="E-" + uuid.uuid4().hex[:8],
+            session_id=self.session_id,
+            timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+            media_time_s=media_time_seconds,
+            event_type=event_type,
+            state="OBSERVED",
+            sku_id=identification.sku_id,
+            track_id=track_id,
+            verification=verification,
+            detector_confidence=round(mean_confidence, 4),
+            evidence=(
+                f"{reason}; track hits={track_state.observation_count}; "
+                f"class={label}; id={identification.status}/{identification.method}: "
+                f"{identification.reason}"
+            ),
+            dedupe_key=dedupe_key,
+            frame_idx=frame_index,
+        )
+        event.state_history = ["OBSERVED", "TRACKED"]
+        event.state = "TRACKED"
+        if event_type in ("ADD", "REMOVE"):
+            event.set_state("CANDIDATE_" + event_type)
+
+        if mean_confidence < self.config["reject_below_detector_conf"]:
+            event.set_state("REJECTED")
+            event.evidence += " | rejected: low detector confidence"
+        elif event_type == "UNKNOWN" or identification.status != "RESOLVED":
+            event.set_state("NEEDS_REVIEW")
+        elif (
+            identification.method in ("class_only", "learned_class", "learned_barcode")
+            and self.config["auto_accept_requires_barcode"]
+        ):
+            event.set_state("NEEDS_REVIEW")
+            event.evidence += " | class-only identification needs barcode/manual check"
+        else:
+            event.set_state("ACCEPTED")
+        return event

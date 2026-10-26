@@ -1,4 +1,5 @@
 """Selective OCR adapters. OCR text is evidence only; it never independently commits a SKU."""
+
 from dataclasses import dataclass
 import re
 import unicodedata
@@ -12,7 +13,12 @@ class OCRResult:
 
 
 def normalize_text(value):
-    value = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode().lower()
+    value = (
+        unicodedata.normalize("NFKD", value or "")
+        .encode("ascii", "ignore")
+        .decode()
+        .lower()
+    )
     return " ".join(re.findall(r"[a-z0-9]+", value))
 
 
@@ -23,11 +29,14 @@ class OCRAdapter:
 
 class EasyOCRAdapter(OCRAdapter):
     """Optional EasyOCR backend; instantiated only when enabled and installed."""
+
     def __init__(self, languages=("en",)):
         try:
             import easyocr
         except ImportError as exc:
-            raise RuntimeError("OCR unavailable: install the optional easyocr package") from exc
+            raise RuntimeError(
+                "OCR unavailable: install the optional easyocr package"
+            ) from exc
         self.reader = easyocr.Reader(list(languages), gpu=False, verbose=False)
 
     def read(self, crop):
@@ -35,8 +44,11 @@ class EasyOCRAdapter(OCRAdapter):
             rows = self.reader.readtext(crop, detail=1)
             text = " ".join(row[1] for row in rows).strip()
             confs = [float(row[2]) for row in rows]
-            return OCRResult(text, (sum(confs) / len(confs)) if confs else None,
-                             "READ" if text else "UNREADABLE")
+            return OCRResult(
+                text,
+                (sum(confs) / len(confs)) if confs else None,
+                "READ" if text else "UNREADABLE",
+            )
         except Exception:
             return OCRResult("", None, "ERROR")
 
